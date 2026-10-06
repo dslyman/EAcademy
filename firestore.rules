@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'email']) &&
+             data.keys().hasOnly(['id', 'name', 'email', 'phone']) &&
+             data.id is string && data.id.size() <= 100 &&
+             data.email is string && data.email.size() <= 150 &&
+             (!('name' in data) || (data.name is string && data.name.size() <= 100)) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 30));
+    }
+
+    function isValidEnrollment(data) {
+      return data.keys().hasAll(['courseId', 'enrolledAt']) &&
+             data.keys().hasOnly(['courseId', 'enrolledAt']) &&
+             data.courseId is string && data.courseId.size() <= 100 &&
+             data.enrolledAt is string && data.enrolledAt.size() <= 64;
+    }
+
+    function isValidProgress(data) {
+      return data.keys().hasAll(['courseId']) &&
+             data.keys().hasOnly(['courseId', 'completedLessonIds', 'lastLessonId', 'lastAccessedAt']) &&
+             data.courseId is string && data.courseId.size() <= 100 &&
+             (!('completedLessonIds' in data) || (data.completedLessonIds is list && data.completedLessonIds.size() <= 500)) &&
+             (!('lastLessonId' in data) || (data.lastLessonId is string && data.lastLessonId.size() <= 100)) &&
+             (!('lastAccessedAt' in data) || (data.lastAccessedAt is string && data.lastAccessedAt.size() <= 64));
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(request.resource.data) && request.resource.data.id == userId;
+      allow update: if isOwner(userId) && isValidId(userId) && isValidUser(request.resource.data) && request.resource.data.id == resource.data.id;
+      allow delete: if isOwner(userId);
+
+      match /enrollments/{enrollmentId} {
+        allow read, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(enrollmentId) && isValidEnrollment(request.resource.data);
+        allow update: if isOwner(userId) && isValidId(enrollmentId) && isValidEnrollment(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /progress/{progressId} {
+        allow read, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(progressId) && isValidProgress(request.resource.data);
+        allow update: if isOwner(userId) && isValidId(progressId) && isValidProgress(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}
