@@ -50,4 +50,11 @@ document.addEventListener('click', async (e) => {
 });
 window.addEventListener('hashchange', render);
 let last; store.subscribe(s => { const id = s.user?.id ?? null; if (id !== last) { last = id; render(); } }); // re-render on sign-in/out only, not profile edits
-(async () => { let user = null; try { user = await authService.session(); } catch { /* unauthenticated */ } store.set({ user, ready: true }); render(); })();
+(async () => {
+  const path = currentPath();
+  app.innerHTML = `${header(null, path)}<main id="main" tabindex="-1"><div class="wrap section">${skeleton()}</div></main>${footer()}`;
+  let user = null;
+  try { user = await authService.session(); } catch { /* unauthenticated */ }
+  store.set({ user, ready: true });
+  render();
+})();

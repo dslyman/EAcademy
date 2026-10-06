@@ -16,13 +16,13 @@ import {
 } from 'firebase/firestore';
 import { courses } from '../data/courses.js';
 
-// Test Firestore connection on boot
+// Optional Firestore connection test (non-blocking)
 (async () => {
   if (!config.useMock) {
     try {
       await getDocFromServer(doc(db, 'test', 'connection'));
-    } catch (e) {
-      // Expected if test doc doesn't exist yet, but proves connection works
+    } catch {
+      // Quietly ignore in case of offline or initial load
     }
   }
 })();
@@ -42,21 +42,45 @@ export const authService = {
   session: async () => {
     if (config.useMock) return api('/auth/session').then(r => r.user);
     return new Promise((resolve) => {
-      const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-        unsubscribe();
-        if (!firebaseUser) {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
           resolve(null);
-          return;
         }
-        try {
-          const userDocRef = doc(db, 'users', firebaseUser.uid);
-          const userSnap = await getDoc(userDocRef);
-          const profileData = userSnap.exists() ? userSnap.data() : {};
-          resolve(formatUser(firebaseUser, profileData));
-        } catch {
-          resolve(formatUser(firebaseUser));
+      }, 2000);
+      try {
+        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+          unsubscribe();
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          if (!firebaseUser) {
+            resolve(null);
+            return;
+          }
+          try {
+            const userDocRef = doc(db, 'users', firebaseUser.uid);
+            const userSnap = await getDoc(userDocRef);
+            const profileData = userSnap.exists() ? userSnap.data() : {};
+            resolve(formatUser(firebaseUser, profileData));
+          } catch {
+            resolve(formatUser(firebaseUser));
+          }
+        }, () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeout);
+            resolve(null);
+          }
+        });
+      } catch {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          resolve(null);
         }
-      });
+      }
     });
   },
   login: async (email, password) => {
